@@ -1,7 +1,8 @@
 from fastapi import FastAPI, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.backend.db import engine, Base, get_db
-from app.models import User, Task
+from app.models.user import User
+from app.models.task import Task
 from app.routers.schemas import CreateUser, UpdateUser, CreateTask, UpdateTask
 
 # Создаем таблицы в базе данных
