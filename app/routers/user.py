@@ -1,119 +1,116 @@
-from typing import Annotated
-
-from fastapi import APIRouter, Depends, status, HTTPException
-from slugify import slugify
-from sqlalchemy import insert, select, update, delete
+from fastapi import APIRouter, Depends, status, HTTPException, Path
 from sqlalchemy.orm import Session
-
-from app.backend.db_depends import get_db
-from app.models.user import User  # Импортируем модель User
-from app.models.task import Task  # Импортируем модель Task
+from app.backend.db import get_db
+from app.models.user import User
 from app.routers.schemas import CreateUser, UpdateUser
+from slugify import slugify
 
-# Создаем экземпляр APIRouter
 router = APIRouter()
 
-# Функция для получения всех пользователей
-@router.get("/", status_code=status.HTTP_200_OK)
-def all_users(db: Annotated[Session, Depends(get_db)]):
+
+@router.get('/', status_code=status.HTTP_200_OK)
+def all_users(db: Session = Depends(get_db)):
     """
     Возвращает список всех пользователей из БД.
     """
-    query = select(User)
-    users = db.scalars(query).all()
+    users = db.query(User).all()
     return users
 
-# Функция для получения пользователя по ID
-@router.get("/{user_id}", status_code=status.HTTP_200_OK)
-def user_by_id(user_id: int, db: Annotated[Session, Depends(get_db)]):
+
+@router.get('/{user_id}', status_code=status.HTTP_200_OK)
+def user_by_id(
+    user_id: int = Path(..., description="ID пользователя, которого нужно получить"),
+    db: Session = Depends(get_db)
+):
     """
     Возвращает пользователя по его ID.
     Если пользователь не найден, выбрасывает исключение 404.
     """
-    query = select(User).where(User.id == user_id)
-    user = db.scalar(query)
+    user = db.query(User).filter(User.id == user_id).first()
     if user is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User was not found")
+        raise HTTPException(status_code=404, detail="User was not found")
     return user
 
-# Функция для создания нового пользователя
-@router.post("/create", status_code=status.HTTP_201_CREATED)
-def create_user(user: CreateUser, db: Annotated[Session, Depends(get_db)]):
+
+@router.post('/create', status_code=status.HTTP_201_CREATED)
+def create_user(
+    user: CreateUser,
+    db: Session = Depends(get_db)
+):
     """
     Создает нового пользователя в БД.
-    Возвращает статус 201 и сообщение об успешной транзакции.
+    Генерирует slug из username и сохраняет пользователя.
+    Возвращает статус создания.
     """
-    # Генерируем slug на основе имени пользователя
-    user_slug = slugify(user.username)
+    # Генерация slug из username
+    slug = slugify(user.username)
 
-    # Проверяем, существует ли пользователь с таким username или slug
-    existing_user = db.scalar(select(User).where(User.username == user.username))
+    # Проверка на существование пользователя с таким же slug
+    existing_user = db.query(User).filter(User.slug == slug).first()
     if existing_user:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="User with this username already exists")
+        raise HTTPException(status_code=400, detail="User with this username already exists")
 
-    # Создаем новую запись в БД
-    query = insert(User).values(
+    # Создание нового пользователя
+    new_user = User(
         username=user.username,
         firstname=user.firstname,
         lastname=user.lastname,
         age=user.age,
-        slug=user_slug
+        slug=slug
     )
-    db.execute(query)
+    db.add(new_user)
     db.commit()
+    db.refresh(new_user)
 
-    return {"status_code": status.HTTP_201_CREATED, "transaction": "Successful"}
+    return {'status_code': status.HTTP_201_CREATED, 'transaction': 'Successful'}
 
-# Функция для обновления пользователя
-@router.put("/update/{user_id}", status_code=status.HTTP_200_OK)
-def update_user(user_id: int, user: UpdateUser, db: Annotated[Session, Depends(get_db)]):
+
+@router.put('/update/{user_id}', status_code=status.HTTP_200_OK)
+def update_user(
+    user_id: int = Path(..., description="ID пользователя, которого нужно обновить"),
+    user: UpdateUser = None,
+    db: Session = Depends(get_db)
+):
     """
     Обновляет данные пользователя по его ID.
     Если пользователь не найден, выбрасывает исключение 404.
     """
-    # Проверяем, существует ли пользователь с указанным ID
-    existing_user = db.scalar(select(User).where(User.id == user_id))
+    existing_user = db.query(User).filter(User.id == user_id).first()
+
     if existing_user is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User was not found")
+        raise HTTPException(status_code=404, detail="User was not found")
 
-    # Генерируем новый slug, если указан username
-    if user.username:
-        user_slug = slugify(user.username)
-    else:
-        user_slug = existing_user.slug
+    # Обновление данных пользователя
+    if user.firstname:
+        existing_user.firstname = user.firstname
+    if user.lastname:
+        existing_user.lastname = user.lastname
+    if user.age:
+        existing_user.age = user.age
 
-    # Обновляем данные пользователя
-    query = (
-        update(User)
-        .where(User.id == user_id)
-        .values(
-            username=user.username,
-            firstname=user.firstname,
-            lastname=user.lastname,
-            age=user.age,
-            slug=user_slug
-        )
-    )
-    db.execute(query)
     db.commit()
+    db.refresh(existing_user)
 
-    return {"status_code": status.HTTP_200_OK, "transaction": "User update is successful!"}
+    return {'status_code': status.HTTP_200_OK, 'transaction': 'User update is successful!'}
 
-# Функция для удаления пользователя
-@router.delete("/delete/{user_id}", status_code=status.HTTP_200_OK)
-def delete_user(user_id: int, db: Annotated[Session, Depends(get_db)]):
+
+@router.delete('/delete/{user_id}', status_code=status.HTTP_200_OK)
+def delete_user(
+    user_id: int = Path(..., description="ID пользователя, которого нужно удалить"),
+    db: Session = Depends(get_db)
+):
     """
     Удаляет пользователя по его ID.
     Если пользователь не найден, выбрасывает исключение 404.
+    Все связанные задачи также удаляются благодаря cascade="all, delete-orphan".
     """
-    # Проверяем, существует ли пользователь с указанным ID
-    existing_user = db.scalar(select(User).where(User.id == user_id))
-    if existing_user is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User was not found")
+    existing_user = db.query(User).filter(User.id == user_id).first()
 
-    # Удаляем пользователя
-    query = delete(User).where(User.id == user_id)
-    db.execute(query)
+    if existing_user is None:
+        raise HTTPException(status_code=404, detail="User was not found")
+
+    # Удаление пользователя
+    db.delete(existing_user)
     db.commit()
 
-    return {"status_code": status.HTTP_200_OK, "transaction": "User deleted successfully"}
+    return {'status_code': status.HTTP_200_OK, 'transaction': 'User and associated tasks deleted successfully'}

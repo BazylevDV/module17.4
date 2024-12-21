@@ -2,6 +2,7 @@ from sqlalchemy import Column, Integer, String, Boolean, ForeignKey
 from sqlalchemy.orm import relationship
 from app.backend.db import Base
 
+
 class Task(Base):
     __tablename__ = 'tasks'
 

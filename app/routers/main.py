@@ -13,7 +13,7 @@ app = FastAPI()
 # Маршруты для пользователей
 @app.post("/user/create", tags=["user"])
 async def create_user(user: CreateUser, db: Session = Depends(get_db)):
-    new_user = User(**user.dict())
+    new_user = User(**user.model_dump())  # Используем model_dump вместо dict
     db.add(new_user)
     db.commit()
     db.refresh(new_user)
@@ -31,7 +31,7 @@ async def update_user(user_id: int, user: UpdateUser, db: Session = Depends(get_
     db_user = db.query(User).filter(User.id == user_id).first()
     if not db_user:
         raise HTTPException(status_code=404, detail="User not found")
-    for key, value in user.dict().items():
+    for key, value in user.model_dump().items():  # Используем model_dump вместо dict
         setattr(db_user, key, value)
     db.commit()
     db.refresh(db_user)
@@ -49,7 +49,15 @@ async def delete_user(user_id: int, db: Session = Depends(get_db)):
 # Маршруты для задач
 @app.post("/task/create", tags=["task"])
 async def create_task(task: CreateTask, db: Session = Depends(get_db)):
-    new_task = Task(**task.dict())
+    # Проверяем, существует ли пользователь
+    if not task.user_id:
+        raise HTTPException(status_code=400, detail="User ID is required")
+    user = db.query(User).filter(User.id == task.user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    # Создаем новую задачу
+    new_task = Task(**task.model_dump())  # Используем model_dump вместо dict
     db.add(new_task)
     db.commit()
     db.refresh(new_task)
@@ -67,7 +75,7 @@ async def update_task(task_id: int, task: UpdateTask, db: Session = Depends(get_
     db_task = db.query(Task).filter(Task.id == task_id).first()
     if not db_task:
         raise HTTPException(status_code=404, detail="Task not found")
-    for key, value in task.dict().items():
+    for key, value in task.model_dump().items():  # Используем model_dump вместо dict
         setattr(db_task, key, value)
     db.commit()
     db.refresh(db_task)
